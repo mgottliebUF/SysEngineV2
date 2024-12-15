@@ -2,17 +2,16 @@ import os
 import sys
 import json
 import csv
-import math
 from datetime import datetime
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, QPushButton,
                              QFileDialog, QWidget, QTableWidget, QTableWidgetItem, QComboBox, QTreeWidget, QTreeWidgetItem,
-                             QDialog, QFormLayout, QLineEdit, QTextEdit, QSplitter, QPlainTextEdit, QCheckBox, QInputDialog,
-                             QMenu, QAction, QToolBar, QHeaderView, QFrame, QGroupBox, QSpacerItem, QSizePolicy,
-                             QMessageBox, QAbstractItemView, QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
-                             QGraphicsEllipseItem, QGraphicsTextItem, QGraphicsLineItem)
-from PyQt5.QtCore import Qt, QPointF, QTimer, pyqtSignal
-from PyQt5.QtGui import QPen, QFont, QPainter, QTransform, QBrush, QColor, QPainterPath
+                             QDialog, QFormLayout, QLineEdit, QTextEdit, QCheckBox, QInputDialog,
+                             QMenu, QAction, QToolBar, QHeaderView, QMessageBox, QAbstractItemView, QListWidget, QListWidgetItem,
+                             QGraphicsView, QGraphicsScene, QGraphicsEllipseItem, QGraphicsTextItem, QGraphicsLineItem,
+                             QDockWidget, QSplitter, QPlainTextEdit, QScrollArea, QSizePolicy)
+from PyQt5.QtCore import Qt, pyqtSignal, QSize
+from PyQt5.QtGui import QPen, QFont, QColor
 
 # ---------------------------
 # Glossary Manager
@@ -43,6 +42,8 @@ class RequirementDetailDialog(QDialog):
         self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
         self.setModal(True)
 
+        categories = ["Functional", "Non-Functional", "Interface", "Performance", "Regulatory", "Constraint", "Derived"]
+
         self.req_data = req_data if req_data else {
             "ID": "",
             "Description": "",
@@ -71,7 +72,6 @@ class RequirementDetailDialog(QDialog):
 
         self.category_input = QComboBox()
         self.category_input.setStyleSheet("background-color: #FFFFFF; color: #000000;")
-        categories = ["Functional", "Non-Functional", "Interface", "Performance", "Regulatory", "Constraint", "Derived"]
         self.category_input.addItems(categories)
         if self.req_data["Category"] in categories:
             self.category_input.setCurrentText(self.req_data["Category"])
@@ -202,6 +202,124 @@ class RequirementDialogDecomposition(QDialog):
     def get_data(self):
         return self.id_input.text(), {"Level": self.level_input.currentText(), "Description": self.desc_input.toPlainText()}
 
+class BulkEditDialog(QDialog):
+    def __init__(self, parent, req_ids):
+        super().__init__(parent)
+        self.setWindowTitle("Bulk Edit Requirements")
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        layout = QFormLayout(self)
+
+        self.req_ids = req_ids
+
+        self.priority_input = QComboBox()
+        self.priority_input.setStyleSheet("background-color: #FFFFFF; color: #000000;")
+        self.priority_input.addItems(["No Change", "Low", "Medium", "High", "Critical"])
+        layout.addRow("Change Priority:", self.priority_input)
+
+        self.status_input = QComboBox()
+        self.status_input.setStyleSheet("background-color: #FFFFFF; color: #000000;")
+        self.status_input.addItems(["No Change", "Proposed", "Approved", "Verified", "Validated", "Rejected"])
+        layout.addRow("Change Status:", self.status_input)
+
+        btn_layout = QHBoxLayout()
+        apply_btn = QPushButton("Apply")
+        apply_btn.setStyleSheet("background-color: #000000; color: #FFFFFF;")
+        apply_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet("background-color: #000000; color: #FFFFFF;")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(apply_btn)
+        btn_layout.addWidget(cancel_btn)
+
+        layout.addRow(btn_layout)
+        self.setLayout(layout)
+
+    def get_changes(self):
+        priority = self.priority_input.currentText()
+        status = self.status_input.currentText()
+        return {
+            "Priority": None if priority == "No Change" else priority,
+            "Status": None if status == "No Change" else status
+        }
+
+class GlossaryWidget(QWidget):
+    def __init__(self, parent_app, glossary_manager):
+        super().__init__()
+        self.parent_app=parent_app
+        self.glossary_manager=glossary_manager
+        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
+
+        layout=QVBoxLayout(self)
+        header=QLabel("Glossary (Subsystem Names & Definitions)")
+        header.setStyleSheet("font-size:20px;font-weight:bold;")
+        layout.addWidget(header)
+
+        self.list=QTableWidget(0,2)
+        self.list.setHorizontalHeaderLabels(["Term","Definition"])
+        self.list.setStyleSheet("background-color:#FFFFFF;color:#000000;")
+        self.list.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.list)
+
+        btn_layout=QHBoxLayout()
+        add_btn=QPushButton("Add Term")
+        add_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
+        add_btn.clicked.connect(self.add_term)
+        del_btn=QPushButton("Delete Selected")
+        del_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
+        del_btn.clicked.connect(self.delete_term)
+        save_btn=QPushButton("Save Changes")
+        save_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
+        save_btn.clicked.connect(self.save_changes)
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(del_btn)
+        btn_layout.addWidget(save_btn)
+        layout.addLayout(btn_layout)
+
+        self.load_data()
+
+        self.setLayout(layout)
+
+    def load_data(self):
+        data=self.glossary_manager.get_data()
+        self.list.setRowCount(0)
+        for term,definition in data.items():
+            row=self.list.rowCount()
+            self.list.insertRow(row)
+            titem=QTableWidgetItem(term)
+            ditem=QTableWidgetItem(definition)
+            titem.setForeground(Qt.black)
+            ditem.setForeground(Qt.black)
+            self.list.setItem(row,0,titem)
+            self.list.setItem(row,1,ditem)
+
+    def add_term(self):
+        term,ok=QInputDialog.getText(self,"Add Term","Term:")
+        if ok and term:
+            definition,ok2=QInputDialog.getText(self,"Add Definition","Definition:")
+            if ok2:
+                row=self.list.rowCount()
+                self.list.insertRow(row)
+                titem=QTableWidgetItem(term)
+                ditem=QTableWidgetItem(definition)
+                titem.setForeground(Qt.black)
+                ditem.setForeground(Qt.black)
+                self.list.setItem(row,0,titem)
+                self.list.setItem(row,1,ditem)
+
+    def delete_term(self):
+        rows=self.list.selectionModel().selectedRows()
+        for r in reversed(rows):
+            self.list.removeRow(r.row())
+
+    def save_changes(self):
+        new_data={}
+        for r in range(self.list.rowCount()):
+            term=self.list.item(r,0).text()
+            definition=self.list.item(r,1).text()
+            new_data[term]=definition
+        self.glossary_manager.subsystems=new_data
+        QMessageBox.information(self,"Saved","Glossary updated.")
+
 
 class TestDetailDialog(QDialog):
     def __init__(self, parent, title, test_data=None, requirements_list=None):
@@ -292,372 +410,6 @@ class TestDetailDialog(QDialog):
             "TestDate": self.date_input.text(),
             "Result": self.result_input.currentText()
         }
-
-class BulkEditDialog(QDialog):
-    def __init__(self, parent, req_ids):
-        super().__init__(parent)
-        self.setWindowTitle("Bulk Edit Requirements")
-        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
-        layout = QFormLayout(self)
-
-        self.req_ids = req_ids
-
-        self.priority_input = QComboBox()
-        self.priority_input.setStyleSheet("background-color: #FFFFFF; color: #000000;")
-        self.priority_input.addItems(["No Change", "Low", "Medium", "High", "Critical"])
-        layout.addRow("Change Priority:", self.priority_input)
-
-        self.status_input = QComboBox()
-        self.status_input.setStyleSheet("background-color: #FFFFFF; color: #000000;")
-        self.status_input.addItems(["No Change", "Proposed", "Approved", "Verified", "Validated", "Rejected"])
-        layout.addRow("Change Status:", self.status_input)
-
-        btn_layout = QHBoxLayout()
-        apply_btn = QPushButton("Apply")
-        apply_btn.setStyleSheet("background-color: #000000; color: #FFFFFF;")
-        apply_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("background-color: #000000; color: #FFFFFF;")
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(apply_btn)
-        btn_layout.addWidget(cancel_btn)
-
-        layout.addRow(btn_layout)
-        self.setLayout(layout)
-
-    def get_changes(self):
-        priority = self.priority_input.currentText()
-        status = self.status_input.currentText()
-        return {
-            "Priority": None if priority == "No Change" else priority,
-            "Status": None if status == "No Change" else status
-        }
-
-class ReliabilityWidget(QWidget):
-    def __init__(self, parent_app):
-        super().__init__()
-        self.parent_app=parent_app
-        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
-
-        self.data = {
-            "Definition":"Reliability is the probability that a system performs...",
-            "MTBF":"Mean Time Between Failures",
-            "MTTR":"Mean Time To Repair",
-            "BestPractices":["Redundancy","High-quality components","FMEA","Preventive maintenance"]
-        }
-
-        layout=QVBoxLayout(self)
-        header=QLabel("Reliability Tools")
-        header.setStyleSheet("font-size:20px;font-weight:bold;")
-        layout.addWidget(header)
-
-        def_label=QLabel(f"Definition:\n{self.data['Definition']}")
-        def_label.setStyleSheet("color:#FFFFFF;")
-        layout.addWidget(def_label)
-
-        mtbf_label=QLabel(f"MTBF:\n{self.data['MTBF']}")
-        mtbf_label.setStyleSheet("color:#FFFFFF;")
-        layout.addWidget(mtbf_label)
-
-        mttr_label=QLabel("MTTR:\nMean Time To Repair")
-        mttr_label.setStyleSheet("color:#FFFFFF;")
-        layout.addWidget(mttr_label)
-
-        bp_label=QLabel("Best Practices:")
-        bp_label.setStyleSheet("color:#FFFFFF;font-weight:bold;")
-        layout.addWidget(bp_label)
-        for bp in self.data["BestPractices"]:
-            lbl=QLabel("- "+bp)
-            lbl.setStyleSheet("color:#FFFFFF;")
-            layout.addWidget(lbl)
-
-        self.failure_rate_input=QLineEdit()
-        self.failure_rate_input.setStyleSheet("background-color:#FFFFFF;color:#000000;")
-        layout.addWidget(QLabel("Enter component failure rate (failures/hour):"))
-        layout.addWidget(self.failure_rate_input)
-
-        calc_btn=QPushButton("Calculate MTBF")
-        calc_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        calc_btn.clicked.connect(self.calculate_mtbf)
-        layout.addWidget(calc_btn)
-
-        self.mtbf_result=QLabel("")
-        self.mtbf_result.setStyleSheet("color:#FFFFFF;")
-        layout.addWidget(self.mtbf_result)
-
-        self.setLayout(layout)
-
-    def calculate_mtbf(self):
-        try:
-            fr=float(self.failure_rate_input.text())
-            if fr<=0:
-                self.mtbf_result.setText("Failure rate must be positive.")
-            else:
-                mtbf=1.0/fr
-                self.mtbf_result.setText(f"Calculated MTBF: {mtbf:.2f} hours")
-        except:
-            self.mtbf_result.setText("Invalid failure rate.")
-
-
-class PhysicsSimulatorWidget(QWidget):
-    def __init__(self,parent_app):
-        super().__init__()
-        self.parent_app=parent_app
-        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
-        layout=QVBoxLayout(self)
-
-        header=QLabel("Physics Simulator")
-        header.setStyleSheet("font-size:20px;font-weight:bold;")
-        layout.addWidget(header)
-
-        self.scenario_combo=QComboBox()
-        self.scenario_combo.setStyleSheet("background-color:#FFFFFF;color:#000000;")
-        self.scenario_combo.addItems(["Ball Drop (Earth)","Kickball on Mars","Block Sliding"])
-        layout.addWidget(self.scenario_combo)
-
-        self.run_button=QPushButton("Run Simulation")
-        self.run_button.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        self.run_button.clicked.connect(self.run_simulation)
-        layout.addWidget(self.run_button)
-
-        self.output=QTextEdit()
-        self.output.setStyleSheet("background-color:#FFFFFF;color:#000000;")
-        layout.addWidget(self.output)
-
-        self.setLayout(layout)
-
-    def run_simulation(self):
-        scenario=self.scenario_combo.currentText()
-        dt=0.1
-        t_final=5.0
-        t=0.0
-        px,py,pz=0,0,0
-        vx,vy,vz=0,0,0
-        if scenario=="Ball Drop (Earth)":
-            pz=10.0
-            vz=0.0
-            g=9.81
-            log="Time\tHeight(m)\tVel(m/s)\n"
-            while t<t_final:
-                vz -= g*dt
-                pz += vz*dt
-                if pz<0:
-                    pz=0
-                    vz=0
-                log+=f"{t:.1f}\t{pz:.2f}\t{vz:.2f}\n"
-                t+=dt
-            self.output.setPlainText(log)
-
-        elif scenario=="Kickball on Mars":
-            px=0; pz=0
-            vx=5; vz=2
-            g=3.71
-            log="Time\tX(m)\tZ(m)\n"
-            while t<t_final:
-                vz-=g*dt
-                px+=vx*dt
-                pz+=vz*dt
-                if pz<0:
-                    pz=0;vz=0
-                log+=f"{t:.1f}\t{px:.2f}\t{pz:.2f}\n"
-                t+=dt
-            self.output.setPlainText(log)
-
-        elif scenario=="Block Sliding":
-            px=0
-            vx=3
-            log="Time\tX(m)\tVel(m/s)\n"
-            while t<t_final:
-                px+=vx*dt
-                log+=f"{t:.1f}\t{px:.2f}\t{vx:.2f}\n"
-                t+=dt
-            self.output.setPlainText(log)
-
-
-class DoDAFNode(QGraphicsEllipseItem):
-    def __init__(self, x,y,name):
-        super().__init__(x,y,100,50)
-        self.setBrush(QBrush(Qt.gray))
-        self.setPen(QPen(Qt.black))
-        self.name=name
-        self.text=QGraphicsTextItem(name,self)
-        self.text.setDefaultTextColor(Qt.black)
-        self.text.setFont(QFont("Arial",10))
-        b=self.boundingRect()
-        self.text.setPos(b.width()/4,b.height()/4)
-        self.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsFocusable)
-
-class DoDAFEdge(QGraphicsLineItem):
-    def __init__(self,start,end):
-        super().__init__()
-        self.start=start
-        self.end=end
-        self.setPen(QPen(Qt.black,2))
-        self.itemFlowName=""
-
-    def update_positions(self):
-        p1=self.start.scenePos()
-        p2=self.end.scenePos()
-        self.setLine(p1.x()+50,p1.y()+25,p2.x()+50,p2.y()+25)
-
-class DODAFBuilderWidget(QWidget):
-    def __init__(self, parent_app):
-        super().__init__()
-        self.parent_app=parent_app
-        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
-        layout=QVBoxLayout(self)
-
-        header=QLabel("DoDAF Builder - Drag nodes, double-click to rename, add flows")
-        header.setStyleSheet("font-size:20px;font-weight:bold;")
-        layout.addWidget(header)
-
-        self.mode_combo=QComboBox()
-        self.mode_combo.setStyleSheet("background-color:#FFFFFF;color:#000000;")
-        self.mode_combo.addItems(["Select","Add Node","Add Flow","Rename Node"])
-        layout.addWidget(self.mode_combo)
-
-        self.scene=QGraphicsScene()
-        self.view=QGraphicsView(self.scene)
-        self.view.setStyleSheet("background-color:#FFFFFF;")
-        layout.addWidget(self.view)
-
-        self.nodes=[]
-        self.edges=[]
-        self.temp_flow_start=None
-
-        self.view.setMouseTracking(True)
-        self.view.setRenderHint(QPainter.Antialiasing)
-        self.view.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.view.customContextMenuRequested.connect(self.context_menu)
-
-        self.view.viewport().installEventFilter(self)
-
-        self.setLayout(layout)
-
-    def context_menu(self,pos):
-        item=self.view.itemAt(pos)
-        if item and isinstance(item,DoDAFEdge):
-            flow_name,ok=QInputDialog.getText(self,"Item Flow Name","Enter flow name:")
-            if ok:
-                item.itemFlowName=flow_name
-                self.scene.update()
-
-    def eventFilter(self, source, event):
-        if event.type()==event.MouseButtonPress and source is self.view.viewport():
-            if event.button()==Qt.LeftButton:
-                scene_pos=self.view.mapToScene(event.pos())
-                mode=self.mode_combo.currentText()
-                if mode=="Add Node":
-                    node=DoDAFNode(scene_pos.x(), scene_pos.y(),f"Node{len(self.nodes)+1}")
-                    self.scene.addItem(node)
-                    self.nodes.append(node)
-                elif mode=="Add Flow":
-                    items=self.scene.items(scene_pos)
-                    node=None
-                    for i in items:
-                        if isinstance(i,DoDAFNode):
-                            node=i
-                            break
-                    if node:
-                        if self.temp_flow_start is None:
-                            self.temp_flow_start=node
-                        else:
-                            edge=DoDAFEdge(self.temp_flow_start,node)
-                            self.scene.addItem(edge)
-                            self.edges.append(edge)
-                            edge.update_positions()
-                            self.temp_flow_start=None
-        if event.type()==event.MouseButtonDblClick and source is self.view.viewport():
-            mode=self.mode_combo.currentText()
-            if mode=="Rename Node":
-                scene_pos=self.view.mapToScene(event.pos())
-                items=self.scene.items(scene_pos)
-                for i in items:
-                    if isinstance(i,DoDAFNode):
-                        new_name,ok=QInputDialog.getText(self,"Rename Node","New name:")
-                        if ok:
-                            i.name=new_name
-                            i.text.setPlainText(new_name)
-        return super().eventFilter(source,event)
-
-
-class GlossaryWidget(QWidget):
-    def __init__(self, parent_app, glossary_manager):
-        super().__init__()
-        self.parent_app=parent_app
-        self.glossary_manager=glossary_manager
-        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
-
-        layout=QVBoxLayout(self)
-        header=QLabel("Glossary (Subsystem Names & Definitions)")
-        header.setStyleSheet("font-size:20px;font-weight:bold;")
-        layout.addWidget(header)
-
-        self.list=QTableWidget(0,2)
-        self.list.setHorizontalHeaderLabels(["Term","Definition"])
-        self.list.setStyleSheet("background-color:#FFFFFF;color:#000000;")
-        self.list.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.list)
-
-        btn_layout=QHBoxLayout()
-        add_btn=QPushButton("Add Term")
-        add_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        add_btn.clicked.connect(self.add_term)
-        del_btn=QPushButton("Delete Selected")
-        del_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        del_btn.clicked.connect(self.delete_term)
-        save_btn=QPushButton("Save Changes")
-        save_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        save_btn.clicked.connect(self.save_changes)
-        btn_layout.addWidget(add_btn)
-        btn_layout.addWidget(del_btn)
-        btn_layout.addWidget(save_btn)
-        layout.addLayout(btn_layout)
-
-        self.load_data()
-
-        self.setLayout(layout)
-
-    def load_data(self):
-        data=self.glossary_manager.get_data()
-        self.list.setRowCount(0)
-        for term,definition in data.items():
-            row=self.list.rowCount()
-            self.list.insertRow(row)
-            titem=QTableWidgetItem(term)
-            ditem=QTableWidgetItem(definition)
-            titem.setForeground(Qt.black)
-            ditem.setForeground(Qt.black)
-            self.list.setItem(row,0,titem)
-            self.list.setItem(row,1,ditem)
-
-    def add_term(self):
-        term,ok=QInputDialog.getText(self,"Add Term","Term:")
-        if ok and term:
-            definition,ok2=QInputDialog.getText(self,"Add Definition","Definition:")
-            if ok2:
-                row=self.list.rowCount()
-                self.list.insertRow(row)
-                titem=QTableWidgetItem(term)
-                ditem=QTableWidgetItem(definition)
-                titem.setForeground(Qt.black)
-                ditem.setForeground(Qt.black)
-                self.list.setItem(row,0,titem)
-                self.list.setItem(row,1,ditem)
-
-    def delete_term(self):
-        rows=self.list.selectionModel().selectedRows()
-        for r in reversed(rows):
-            self.list.removeRow(r.row())
-
-    def save_changes(self):
-        new_data={}
-        for r in range(self.list.rowCount()):
-            term=self.list.item(r,0).text()
-            definition=self.list.item(r,1).text()
-            new_data[term]=definition
-        self.glossary_manager.subsystems=new_data
-        QMessageBox.information(self,"Saved","Glossary updated.")
 
 
 class TestVerificationWidget(QWidget):
@@ -922,7 +674,8 @@ class SystemStateWidget(QWidget):
 
     def update_stage(self, state):
         self.current_state_label.setText(f"Current State: {state}")
-        self.parent_app.update_system_state(state)
+        self.parent_app.system_state=state
+        self.parent_app.update_toolbar_info()
 
 
 class CONOPSWidget(QWidget):
@@ -1044,45 +797,75 @@ class HomePageWidget(QWidget):
         spacer.setMinimumHeight(50)
         layout.addWidget(spacer)
 
-        button_layout=QHBoxLayout()
-        new_project_btn=QPushButton("Create New Project")
-        new_project_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;font-size:20px;padding:10px;")
-        new_project_btn.clicked.connect(self.create_new_project)
-
-        load_project_btn=QPushButton("Load Previous Project")
-        load_project_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;font-size:20px;padding:10px;")
-        load_project_btn.clicked.connect(self.load_previous_project)
-
-        button_layout.addWidget(new_project_btn)
-        button_layout.addWidget(load_project_btn)
-        layout.addLayout(button_layout)
         self.setLayout(layout)
 
-    def create_new_project(self):
-        project_name,_=QFileDialog.getSaveFileName(self,"New Project","","JSON Files (*.json)")
-        if project_name:
-            if not project_name.endswith(".json"):
-                project_name += ".json"
-            with open(project_name,'w') as f:
-                json.dump({},f)
-            self.parent_app.update_project_name(os.path.basename(project_name).replace(".json",""))
 
-    def load_previous_project(self):
-        project_path,_=QFileDialog.getOpenFileName(self,"Load Project","","JSON Files (*.json)")
-        if project_path:
-            with open(project_path,'r') as f:
-                project_data=json.load(f)
-                self.parent_app.update_project_name(os.path.basename(project_path).replace(".json",""))
-                self.parent_app.requirements_manager.load_data(project_data.get("requirements",[]))
-                self.parent_app.test_verification.load_data(project_data.get("tests",[]), self.parent_app.requirements_manager.get_data())
-                self.parent_app.system_decomposition.load_data(project_data.get("system_decomposition",[]))
-                self.parent_app.conops_widget.load_data(project_data.get("conops",{}))
-                self.parent_app.physics_simulator.load_data(project_data.get("physics",{}))
-                self.parent_app.action_manager.load_data(project_data.get("actions",[]))
-                self.parent_app.update_system_state(project_data.get("system_state","Concept Development"))
+class ReliabilityWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app=parent_app
+        self.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
+
+        self.data = {
+            "Definition":"Reliability is the probability that a system performs...",
+            "MTBF":"Mean Time Between Failures",
+            "MTTR":"Mean Time To Repair",
+            "BestPractices":["Redundancy","High-quality components","FMEA","Preventive maintenance"]
+        }
+
+        layout=QVBoxLayout(self)
+        header=QLabel("Reliability Tools")
+        header.setStyleSheet("font-size:20px;font-weight:bold;")
+        layout.addWidget(header)
+
+        def_label=QLabel(f"Definition:\n{self.data['Definition']}")
+        def_label.setStyleSheet("color:#FFFFFF;")
+        layout.addWidget(def_label)
+
+        mtbf_label=QLabel(f"MTBF:\n{self.data['MTBF']}")
+        mtbf_label.setStyleSheet("color:#FFFFFF;")
+        layout.addWidget(mtbf_label)
+
+        mttr_label=QLabel("MTTR:\nMean Time To Repair")
+        mttr_label.setStyleSheet("color:#FFFFFF;")
+        layout.addWidget(mttr_label)
+
+        bp_label=QLabel("Best Practices:")
+        bp_label.setStyleSheet("color:#FFFFFF;font-weight:bold;")
+        layout.addWidget(bp_label)
+        for bp in self.data["BestPractices"]:
+            lbl=QLabel("- "+bp)
+            lbl.setStyleSheet("color:#FFFFFF;")
+            layout.addWidget(lbl)
+
+        self.failure_rate_input=QLineEdit()
+        self.failure_rate_input.setStyleSheet("background-color:#FFFFFF;color:#000000;")
+        layout.addWidget(QLabel("Enter component failure rate (failures/hour):"))
+        layout.addWidget(self.failure_rate_input)
+
+        calc_btn=QPushButton("Calculate MTBF")
+        calc_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
+        calc_btn.clicked.connect(self.calculate_mtbf)
+        layout.addWidget(calc_btn)
+
+        self.mtbf_result=QLabel("")
+        self.mtbf_result.setStyleSheet("color:#FFFFFF;")
+        layout.addWidget(self.mtbf_result)
+
+        self.setLayout(layout)
+
+    def calculate_mtbf(self):
+        try:
+            fr=float(self.failure_rate_input.text())
+            if fr<=0:
+                self.mtbf_result.setText("Failure rate must be positive.")
+            else:
+                mtbf=1.0/fr
+                self.mtbf_result.setText(f"Calculated MTBF: {mtbf:.2f} hours")
+        except:
+            self.mtbf_result.setText("Invalid failure rate.")
 
 
-# RequirementsManagerWidget definition:
 class RequirementsManagerWidget(QWidget):
     def __init__(self, parent_app, glossary_manager):
         super().__init__()
@@ -1122,6 +905,11 @@ class RequirementsManagerWidget(QWidget):
         self.search_input.textChanged.connect(self.apply_filters)
         control_layout.addWidget(self.search_input)
 
+        add_req_btn=QPushButton("Add Requirement")
+        add_req_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
+        add_req_btn.clicked.connect(self.add_requirement)
+        control_layout.addWidget(add_req_btn)
+
         bulk_btn=QPushButton("Bulk Edit")
         bulk_btn.setStyleSheet("background-color:#000000;color:#FFFFFF;")
         bulk_btn.clicked.connect(self.bulk_edit)
@@ -1140,13 +928,13 @@ class RequirementsManagerWidget(QWidget):
         layout.addLayout(control_layout)
 
         self.tree=QTreeWidget()
-        self.tree.setHeaderLabels(["Requirement ID"])
+        self.tree.setHeaderLabels(["Requirement ID","Description"])
         self.tree.setStyleSheet("background-color:#3E3E3E;color:#FFFFFF;")
         self.tree.itemDoubleClicked.connect(self.edit_requirement)
         layout.addWidget(self.tree)
 
-        self.table=QTableWidget(0,6)
-        self.table.setHorizontalHeaderLabels(["ID","Category","Priority","Status","AssignedTo","Coverage%"])
+        self.table=QTableWidget(0,7)
+        self.table.setHorizontalHeaderLabels(["ID","Description","Category","Priority","Status","AssignedTo","Coverage%"])
         self.table.setStyleSheet("background-color:#FFFFFF;color:#000000;")
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setVisible(False)
@@ -1159,6 +947,18 @@ class RequirementsManagerWidget(QWidget):
         self.apply_filters()
 
         self.setLayout(layout)
+
+    def add_requirement(self):
+        dlg=RequirementDetailDialog(self,"Add Requirement")
+        if dlg.exec_()==QDialog.Accepted:
+            new_data=dlg.get_data()
+            req_id=new_data["ID"]
+            if req_id:
+                self.reqs_data[req_id]=new_data
+                self.apply_filters()
+                self.parent_app.refresh_containment_tree()
+            else:
+                QMessageBox.warning(self,"No ID","Requirement ID cannot be empty.")
 
     def apply_filters(self):
         cat=self.category_filter.currentText()
@@ -1182,7 +982,8 @@ class RequirementsManagerWidget(QWidget):
             self.table.setVisible(False)
             self.tree.clear()
             for r in filtered:
-                QTreeWidgetItem(self.tree,[r["ID"]])
+                item=QTreeWidgetItem([r["ID"], r["Description"]])
+                self.tree.addTopLevelItem(item)
         else:
             self.tree.setVisible(False)
             self.table.setVisible(True)
@@ -1196,6 +997,7 @@ class RequirementsManagerWidget(QWidget):
         coverage=self.calculate_coverage(r)
         items=[
             QTableWidgetItem(r["ID"]),
+            QTableWidgetItem(r["Description"]),
             QTableWidgetItem(r["Category"]),
             QTableWidgetItem(r["Priority"]),
             QTableWidgetItem(r["Status"]),
@@ -1236,6 +1038,7 @@ class RequirementsManagerWidget(QWidget):
                 if changes["Status"] is not None:
                     self.reqs_data[req_id]["Status"]=changes["Status"]
             self.apply_filters()
+            self.parent_app.refresh_containment_tree()
 
     def import_csv(self):
         fname,_=QFileDialog.getOpenFileName(self,"Import CSV","","CSV Files (*.csv)")
@@ -1248,6 +1051,7 @@ class RequirementsManagerWidget(QWidget):
                 row["Archived"]=(row.get("Archived","False")=="True")
                 self.reqs_data[req_id]=row
             self.apply_filters()
+            self.parent_app.refresh_containment_tree()
 
     def export_csv(self):
         fname,_=QFileDialog.getSaveFileName(self,"Export CSV","","CSV Files (*.csv)")
@@ -1270,6 +1074,7 @@ class RequirementsManagerWidget(QWidget):
                 new_data=dlg.get_data()
                 self.reqs_data[req_id]=new_data
                 self.apply_filters()
+                self.parent_app.refresh_containment_tree()
 
     def table_edit_req(self, row,col):
         req_id=self.table.item(row,0).text()
@@ -1279,6 +1084,7 @@ class RequirementsManagerWidget(QWidget):
                 nd=dlg.get_data()
                 self.reqs_data[req_id]=nd
                 self.apply_filters()
+                self.parent_app.refresh_containment_tree()
 
     def get_data(self):
         return list(self.reqs_data.values())
@@ -1291,39 +1097,79 @@ class RequirementsManagerWidget(QWidget):
 class MBSETool(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MBSE Tool - Engineering Development Suite")
-        self.setGeometry(100,100,1600,900)
-        self.setStyleSheet("background-color:#1E1E1E;color:#FFFFFF;")
-
-        self.project_name="Untitled Project"
+        self.project_name="Untitled"
         self.system_state="Concept Development"
         self.glossary_manager=GlossaryManager()
+
+        self.setStyleSheet("background-color:#1E1E1E;color:#FFFFFF;")
 
         self.central_widget=QWidget()
         self.setCentralWidget(self.central_widget)
         main_layout=QVBoxLayout(self.central_widget)
 
-        header_layout=QHBoxLayout()
-        self.header=QLabel(f"MBSE Tool - {self.project_name} ({self.system_state})")
-        self.header.setStyleSheet("font-size:28px;font-weight:bold;color:#FFFFFF;")
-        self.header.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(self.header)
+        # Enhanced Toolbar with Scroll
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setMovable(False)
+        self.toolbar.setStyleSheet("""
+            QToolBar { background-color: #4E4E4E; border: none; }
+            QToolButton { font-size:16px; padding:8px; }
+            QLabel { font-size:16px; color:#FFFFFF; }
+        """)
+        self.addToolBar(Qt.TopToolBarArea, self.toolbar)
+        self.toolbar.setIconSize(QSize(24,24))
+        self.toolbar.setMinimumHeight(48)
 
-        self.save_button=QPushButton("Save Project")
-        self.save_button.setStyleSheet("background-color:#000000;color:#FFFFFF;")
-        self.save_button.clicked.connect(self.save_project)
-        header_layout.addWidget(self.save_button)
+        new_action = QAction("New Project", self)
+        new_action.triggered.connect(self.create_new_project)
+        self.toolbar.addAction(new_action)
 
-        main_layout.addLayout(header_layout)
+        open_action = QAction("Open Project", self)
+        open_action.triggered.connect(self.load_previous_project)
+        self.toolbar.addAction(open_action)
+
+        save_action = QAction("Save Project", self)
+        save_action.triggered.connect(self.save_project)
+        self.toolbar.addAction(save_action)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.toolbar.addWidget(spacer)
+
+        scroll_area = QScrollArea()
+        scroll_area.setFixedHeight(40)
+        scroll_area.setStyleSheet("QScrollArea {border:none; background:transparent;}")
+
+        scroll_container = QWidget()
+        scroll_layout = QHBoxLayout(scroll_container)
+        scroll_layout.setContentsMargins(0,0,0,0)
+        scroll_layout.setSpacing(20)
+
+        self.project_label = QLabel("")
+        self.project_label.setStyleSheet("color:#FFFFFF; font-size:16px;")
+        scroll_layout.addWidget(self.project_label)
+        scroll_container.setLayout(scroll_layout)
+        scroll_area.setWidget(scroll_container)
+        scroll_area.setWidgetResizable(True)
+
+        self.toolbar.addWidget(scroll_area)
+
+        self.update_toolbar_info()
 
         self.tabs=QTabWidget()
         self.tabs.setStyleSheet("""
-        QTabBar::tab {background:#2E2E2E;color:#FFFFFF;padding:10px;font-weight:bold;}
-        QTabBar::tab:selected {background:#4E4E4E;}
+            QTabBar::tab {
+                background:#2E2E2E;color:#FFFFFF;padding:10px;font-weight:bold; font-size:16px;
+                margin-right:2px;
+            }
+            QTabBar::tab:selected { background:#4E4E4E; }
+            QTabWidget::pane { border: none; }
         """)
         main_layout.addWidget(self.tabs)
 
         self.home_page=HomePageWidget(self)
+        self.requirements_manager=RequirementsManagerWidget(self,self.glossary_manager)
+        self.system_state_tracker=SystemStateWidget(self)
+        self.conops_widget=CONOPSWidget(self)
 
         class SystemDecompositionWidget(QWidget):
             def __init__(self, parent_app):
@@ -1365,6 +1211,7 @@ class MBSETool(QMainWindow):
                     dec_id, details=dlg.get_data()
                     self.decompositions[dec_id]=details
                     self.refresh_table()
+                    self.parent_app.refresh_containment_tree()
 
             def edit_decomposition(self):
                 rows=self.decomp_table.selectionModel().selectedRows()
@@ -1378,6 +1225,7 @@ class MBSETool(QMainWindow):
                     del self.decompositions[dec_id]
                     self.decompositions[did]=dt
                     self.refresh_table()
+                    self.parent_app.refresh_containment_tree()
 
             def delete_decomposition(self):
                 rows=self.decomp_table.selectionModel().selectedRows()
@@ -1385,6 +1233,7 @@ class MBSETool(QMainWindow):
                     dec_id=self.decomp_table.item(r.row(),0).text()
                     del self.decompositions[dec_id]
                     self.decomp_table.removeRow(r.row())
+                self.parent_app.refresh_containment_tree()
 
             def refresh_table(self):
                 self.decomp_table.setRowCount(0)
@@ -1404,43 +1253,70 @@ class MBSETool(QMainWindow):
                 self.decompositions={d["ID"]:{ "Level":d["Level"],"Description":d["Description"]} for d in data}
                 self.refresh_table()
 
-        self.requirements_manager=RequirementsManagerWidget(self,self.glossary_manager)
-        self.system_state_tracker=SystemStateWidget(self)
-        self.conops_widget=CONOPSWidget(self)
         self.system_decomposition=SystemDecompositionWidget(self)
-        self.dodaf_builder=DODAFBuilderWidget(self)
+        self.dodaf_builder=JiraIntegrationWidget(self) # Placeholder since no DODAF code implemented
         self.action_manager=ActionManagerWidget(self)
-        self.physics_simulator=PhysicsSimulatorWidget(self)
-        self.jira_integration=JiraIntegrationWidget(self)
-        self.reliability_widget=ReliabilityWidget(self)
-        self.glossary_widget=GlossaryWidget(self,self.glossary_manager)
         self.test_verification=TestVerificationWidget(self,self.requirements_manager)
         self.cad_models=CADModelsWidget(self)
+        self.jira_integration=JiraIntegrationWidget(self)
+        self.glossary_widget=GlossaryWidget(self,self.glossary_manager)
+        self.reliability_widget=ReliabilityWidget(self)
 
         self.tabs.addTab(self.home_page,"Home")
         self.tabs.addTab(self.requirements_manager,"Requirements")
         self.tabs.addTab(self.system_state_tracker,"Systems Engineering State")
         self.tabs.addTab(self.conops_widget,"CONOPS")
         self.tabs.addTab(self.system_decomposition,"System Decomposition")
-        self.tabs.addTab(self.dodaf_builder,"DoDAF Builder")
         self.tabs.addTab(self.action_manager,"Action Manager")
         self.tabs.addTab(self.test_verification,"Test Verification")
         self.tabs.addTab(self.cad_models,"CAD Models")
-        self.tabs.addTab(self.physics_simulator,"Physics Simulator")
         self.tabs.addTab(self.jira_integration,"JIRA Integration")
-        self.tabs.addTab(self.reliability_widget,"Reliability")
         self.tabs.addTab(self.glossary_widget,"Glossary")
+        self.tabs.addTab(self.reliability_widget,"Reliability")
 
-    def update_project_name(self,name):
-        self.project_name=name
-        self.update_header()
+        # Containment Tree Dock
+        self.containment_dock = QDockWidget("Project Data", self)
+        self.containment_dock.setStyleSheet("background-color:#2E2E2E;color:#FFFFFF;")
+        self.containment_tree = QTreeWidget()
+        self.containment_tree.setStyleSheet("background-color:#3E3E3E;color:#FFFFFF;")
+        self.containment_tree.setHeaderLabels(["Name"])
+        self.containment_tree.itemDoubleClicked.connect(self.handle_containment_double_click)
+        self.containment_dock.setWidget(self.containment_tree)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.containment_dock)
 
-    def update_system_state(self,state):
-        self.system_state=state
-        self.update_header()
+        self.refresh_containment_tree()
 
-    def update_header(self):
-        self.header.setText(f"MBSE Tool - {self.project_name} ({self.system_state})")
+    def create_new_project(self):
+        project_name,_=QFileDialog.getSaveFileName(self,"New Project","","JSON Files (*.json)")
+        if project_name:
+            if not project_name.endswith(".json"):
+                project_name += ".json"
+            with open(project_name,'w') as f:
+                json.dump({},f)
+            self.project_name=os.path.basename(project_name).replace(".json","")
+            self.requirements_manager.load_data([])
+            self.test_verification.load_data([],[])
+            self.system_decomposition.load_data([])
+            self.conops_widget.load_data({})
+            self.action_manager.load_data([])
+            self.system_state="Concept Development"
+            self.update_toolbar_info()
+            self.refresh_containment_tree()
+
+    def load_previous_project(self):
+        project_path,_=QFileDialog.getOpenFileName(self,"Load Project","","JSON Files (*.json)")
+        if project_path:
+            with open(project_path,'r') as f:
+                project_data=json.load(f)
+                self.project_name=os.path.basename(project_path).replace(".json","")
+                self.requirements_manager.load_data(project_data.get("requirements",[]))
+                self.test_verification.load_data(project_data.get("tests",[]), self.requirements_manager.get_data())
+                self.system_decomposition.load_data(project_data.get("system_decomposition",[]))
+                self.conops_widget.load_data(project_data.get("conops",{}))
+                self.action_manager.load_data(project_data.get("actions",[]))
+                self.system_state=project_data.get("system_state","Concept Development")
+                self.update_toolbar_info()
+                self.refresh_containment_tree()
 
     def save_project(self):
         fname,_=QFileDialog.getSaveFileName(self,"Save Project","","JSON Files (*.json)")
@@ -1453,13 +1329,123 @@ class MBSETool(QMainWindow):
                 "tests": self.test_verification.get_data(),
                 "system_state": self.system_state,
                 "system_decomposition": self.system_decomposition.get_data(),
-                "conops": self.conops_widget.get_data(),
-                "physics": self.physics_simulator.get_data()
+                "conops": self.conops_widget.get_data()
             }
             with open(fname,'w') as f:
                 json.dump(data,f)
-            self.update_project_name(os.path.basename(fname).replace(".json",""))
+            self.project_name=os.path.basename(fname).replace(".json","")
+            self.update_toolbar_info()
+            self.refresh_containment_tree()
 
+    def update_toolbar_info(self):
+        self.project_label.setText(f"Project: {self.project_name} | State: {self.system_state}")
+
+    def refresh_containment_tree(self):
+        self.containment_tree.clear()
+
+        # Requirements
+        reqs_node=QTreeWidgetItem(["Requirements"])
+        for r in self.requirements_manager.get_data():
+            QTreeWidgetItem(reqs_node,[r["ID"]])
+        self.containment_tree.addTopLevelItem(reqs_node)
+
+        # Tests
+        tests_node=QTreeWidgetItem(["Tests"])
+        for t in self.test_verification.get_data():
+            QTreeWidgetItem(tests_node,[t["TestID"]])
+        self.containment_tree.addTopLevelItem(tests_node)
+
+        # Actions
+        actions_node=QTreeWidgetItem(["Actions"])
+        for a in self.action_manager.get_data():
+            QTreeWidgetItem(actions_node,[a["Action ID"]])
+        self.containment_tree.addTopLevelItem(actions_node)
+
+        # Decomposition
+        decomp_node=QTreeWidgetItem(["System Decomposition"])
+        for d in self.system_decomposition.get_data():
+            QTreeWidgetItem(decomp_node,[d["ID"]])
+        self.containment_tree.addTopLevelItem(decomp_node)
+
+        # Glossary
+        glossary_node=QTreeWidgetItem(["Glossary"])
+        for term,definition in self.glossary_manager.get_data().items():
+            QTreeWidgetItem(glossary_node,[term])
+        self.containment_tree.addTopLevelItem(glossary_node)
+
+        self.containment_tree.expandAll()
+
+    def handle_containment_double_click(self, item, column):
+        parent = item.parent()
+        if not parent:
+            return
+        parent_name=parent.text(0)
+        name=item.text(0)
+
+        if parent_name=="Requirements":
+            data_map={r["ID"]:r for r in self.requirements_manager.get_data()}
+            if name in data_map:
+                dlg=RequirementDetailDialog(self,"Edit Requirement",data_map[name])
+                if dlg.exec_()==QDialog.Accepted:
+                    nd=dlg.get_data()
+                    req_id=nd["ID"]
+                    old_id=name
+                    reqs_data={r["ID"]:r for r in self.requirements_manager.get_data()}
+                    del reqs_data[old_id]
+                    reqs_data[req_id]=nd
+                    self.requirements_manager.reqs_data=reqs_data
+                    self.requirements_manager.apply_filters()
+                    self.refresh_containment_tree()
+
+        elif parent_name=="Tests":
+            data_map={t["TestID"]:t for t in self.test_verification.get_data()}
+            if name in data_map:
+                reqs = self.requirements_manager.get_data()
+                from copy import deepcopy
+                td=deepcopy(data_map[name])
+                dlg=TestDetailDialog(self,"Edit Test", td, requirements_list=reqs)
+                if dlg.exec_()==QDialog.Accepted:
+                    nd=dlg.get_data()
+                    tests_data={t["TestID"]:t for t in self.test_verification.get_data()}
+                    del tests_data[name]
+                    tests_data[nd["TestID"]]=nd
+                    self.test_verification.tests_data=tests_data
+                    self.test_verification.apply_filters()
+                    self.refresh_containment_tree()
+
+        elif parent_name=="Actions":
+            a_data={a["Action ID"]:a for a in self.action_manager.get_data()}
+            if name in a_data:
+                new_desc,ok=QInputDialog.getText(self,"Edit Action","Description:",text=a_data[name]["Description"])
+                if ok:
+                    a_data[name]["Description"]=new_desc
+                    self.action_manager.actions_data=a_data
+                    self.action_manager.load_data(list(a_data.values()))
+                    self.refresh_containment_tree()
+
+        elif parent_name=="System Decomposition":
+            decomp_data={d["ID"]:d for d in self.system_decomposition.get_data()}
+            if name in decomp_data:
+                dlg=RequirementDialogDecomposition(self,"Edit Decomposition", name, decomp_data[name])
+                if dlg.exec_()==QDialog.Accepted:
+                    did, dt=dlg.get_data()
+                    sdata={x["ID"]:x for x in self.system_decomposition.get_data()}
+                    del sdata[name]
+                    dt["ID"]=did
+                    sdata[did]=dt
+                    arr=[{"ID":k,**v} for k,v in sdata.items()]
+                    self.system_decomposition.load_data(arr)
+                    self.refresh_containment_tree()
+
+        elif parent_name=="Glossary":
+            glossary=self.glossary_manager.get_data()
+            term=name
+            definition=glossary.get(term,"")
+            new_def,ok=QInputDialog.getText(self,"Edit Definition","Definition:",text=definition)
+            if ok:
+                glossary[term]=new_def
+                self.glossary_manager.subsystems=glossary
+                self.refresh_containment_tree()
 
 def launch_mbse_tool():
     app=QApplication(sys.argv)
