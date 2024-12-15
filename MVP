@@ -1,0 +1,367 @@
+import os
+import sys
+import json
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, QListWidget, QPushButton,
+    QFileDialog, QWidget, QTableWidget, QTableWidgetItem, QComboBox, QTextEdit, QTreeWidget, QTreeWidgetItem,
+    QDialog, QFormLayout
+)
+from PyQt5.QtCore import Qt
+
+
+class SysEngine(QMainWindow):
+    """Main Application integrating all widgets."""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SysEngine - Engineering Development Suite")
+        self.setGeometry(100, 100, 1600, 900)
+        self.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF;")
+
+        self.project_name = None
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        main_layout = QVBoxLayout(self.central_widget)
+
+        # Header
+        self.header = QLabel("SysEngine")
+        self.header.setStyleSheet("font-size: 28px; font-weight: bold; color: #FFFFFF;")
+        self.header.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.header)
+
+        # Tabs for Modules
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabBar::tab { background: #2E2E2E; color: #FFFFFF; padding: 10px; }
+            QTabBar::tab:selected { background: #4E4E4E; }
+        """)
+        main_layout.addWidget(self.tabs)
+
+        # Add Modules
+        self.project_manager = ProjectManagerWidget(self)
+        self.requirements_manager = RequirementsManagerWidget(self)
+        self.v_model_tracker = VModelTrackerWidget(self)
+        self.dodaf_builder = DODAFBuilderWidget(self)
+        self.action_manager = ActionManagerWidget(self)
+        self.test_verification = TestVerificationWidget(self)
+
+        self.tabs.addTab(self.project_manager, "Project Manager")
+        self.tabs.addTab(self.requirements_manager, "Requirements Manager")
+        self.tabs.addTab(self.v_model_tracker, "V-Model Tracker")
+        self.tabs.addTab(self.dodaf_builder, "DoDAF Builder")
+        self.tabs.addTab(self.action_manager, "Action Manager")
+        self.tabs.addTab(self.test_verification, "Test Verification")
+
+    def update_project_name(self, name):
+        """Update the displayed project name."""
+        self.project_name = name
+        self.header.setText(f"SysEngine - Project: {self.project_name}")
+
+
+# Project Manager
+class ProjectManagerWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+        self.projects_dir = "projects"
+        os.makedirs(self.projects_dir, exist_ok=True)
+
+        header = QLabel("Project Manager")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.project_list = QListWidget()
+        self.layout.addWidget(self.project_list)
+        self.refresh_project_list()
+
+        button_layout = QHBoxLayout()
+        self.new_button = QPushButton("New Project")
+        self.new_button.setStyleSheet("background-color: #4E9A51; color: #FFFFFF;")
+        self.new_button.clicked.connect(self.create_new_project)
+        button_layout.addWidget(self.new_button)
+
+        self.load_button = QPushButton("Load Project")
+        self.load_button.setStyleSheet("background-color: #5DADE2; color: #FFFFFF;")
+        self.load_button.clicked.connect(self.load_project)
+        button_layout.addWidget(self.load_button)
+
+        self.save_button = QPushButton("Save Current State")
+        self.save_button.setStyleSheet("background-color: #F4D03F; color: #000000;")
+        self.save_button.clicked.connect(self.save_project)
+        button_layout.addWidget(self.save_button)
+
+        self.layout.addLayout(button_layout)
+
+    def refresh_project_list(self):
+        self.project_list.clear()
+        for project in os.listdir(self.projects_dir):
+            if project.endswith(".json"):
+                self.project_list.addItem(project)
+
+    def create_new_project(self):
+        project_name, _ = QFileDialog.getSaveFileName(self, "New Project", "", "JSON Files (*.json)")
+        if project_name:
+            if not project_name.endswith(".json"):
+                project_name += ".json"
+            with open(project_name, "w") as file:
+                json.dump({}, file)
+            self.refresh_project_list()
+
+    def load_project(self):
+        selected_item = self.project_list.currentItem()
+        if selected_item:
+            project_path = os.path.join(self.projects_dir, selected_item.text())
+            with open(project_path, "r") as file:
+                project_data = json.load(file)
+                self.parent_app.update_project_name(selected_item.text().replace(".json", ""))
+                self.parent_app.requirements_manager.load_data(project_data.get("requirements", []))
+                self.parent_app.action_manager.load_data(project_data.get("actions", []))
+                self.parent_app.test_verification.load_data(project_data.get("tests", []))
+                self.parent_app.v_model_tracker.set_stage(project_data.get("v_model_stage", "Concept Development"))
+                print("Loaded project:", project_data)
+
+    def save_project(self):
+        project_name, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "JSON Files (*.json)")
+        if project_name:
+            if not project_name.endswith(".json"):
+                project_name += ".json"
+            current_state = {
+                "requirements": self.parent_app.requirements_manager.get_data(),
+                "actions": self.parent_app.action_manager.get_data(),
+                "tests": self.parent_app.test_verification.get_data(),
+                "v_model_stage": self.parent_app.v_model_tracker.get_stage(),
+            }
+            with open(project_name, "w") as file:
+                json.dump(current_state, file)
+            self.refresh_project_list()
+
+
+# Requirements Manager
+class RequirementsManagerWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+
+        header = QLabel("Requirements Manager")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.requirements_table = QTableWidget(0, 4)
+        self.requirements_table.setHorizontalHeaderLabels(["ID", "Level", "Description", "Trace Links"])
+        self.requirements_table.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF; font-size: 14px;")
+        self.layout.addWidget(self.requirements_table)
+
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add Requirement")
+        self.add_button.setStyleSheet("background-color: #4E9A51; color: #FFFFFF;")
+        self.add_button.clicked.connect(self.add_requirement)
+        button_layout.addWidget(self.add_button)
+
+        self.layout.addLayout(button_layout)
+
+    def add_requirement(self):
+        row_position = self.requirements_table.rowCount()
+        self.requirements_table.insertRow(row_position)
+        self.requirements_table.setItem(row_position, 0, QTableWidgetItem(f"R{row_position + 1}"))
+        self.requirements_table.setItem(row_position, 1, QTableWidgetItem("Level 1"))
+        self.requirements_table.setItem(row_position, 2, QTableWidgetItem("New Requirement"))
+        self.requirements_table.setItem(row_position, 3, QTableWidgetItem("None"))
+
+    def load_data(self, requirements_data):
+        self.requirements_table.setRowCount(0)
+        for req in requirements_data:
+            row_position = self.requirements_table.rowCount()
+            self.requirements_table.insertRow(row_position)
+            self.requirements_table.setItem(row_position, 0, QTableWidgetItem(req["ID"]))
+            self.requirements_table.setItem(row_position, 1, QTableWidgetItem(req["Level"]))
+            self.requirements_table.setItem(row_position, 2, QTableWidgetItem(req["Description"]))
+            self.requirements_table.setItem(row_position, 3, QTableWidgetItem(req["Trace Links"]))
+
+    def get_data(self):
+        data = []
+        for row in range(self.requirements_table.rowCount()):
+            req = {
+                "ID": self.requirements_table.item(row, 0).text(),
+                "Level": self.requirements_table.item(row, 1).text(),
+                "Description": self.requirements_table.item(row, 2).text(),
+                "Trace Links": self.requirements_table.item(row, 3).text(),
+            }
+            data.append(req)
+        return data
+
+
+# V-Model Tracker
+class VModelTrackerWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+
+        header = QLabel("V-Model Tracker")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.stage_selector = QComboBox()
+        self.stage_selector.addItems([
+            "Concept Development",
+            "Requirements Analysis",
+            "Design",
+            "Implementation",
+            "Integration",
+            "Verification",
+            "Validation"
+        ])
+        self.stage_selector.currentTextChanged.connect(self.update_stage)
+        self.layout.addWidget(self.stage_selector)
+
+        self.current_stage = QLabel("Current Stage: Concept Development")
+        self.current_stage.setStyleSheet("font-size: 16px;")
+        self.layout.addWidget(self.current_stage)
+
+    def update_stage(self, stage):
+        self.current_stage.setText(f"Current Stage: {stage}")
+
+    def set_stage(self, stage):
+        self.stage_selector.setCurrentText(stage)
+
+    def get_stage(self):
+        return self.stage_selector.currentText()
+
+
+# DoDAF Builder
+class DODAFBuilderWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+
+        header = QLabel("DoDAF Framework Builder")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.dodaf_editor = QTextEdit()
+        self.dodaf_editor.setStyleSheet("background-color: #3E3E3E; color: #FFFFFF;")
+        self.dodaf_editor.setPlaceholderText("Build DoDAF views here (OV-1, SV-1, TV-1, etc.)...")
+        self.layout.addWidget(self.dodaf_editor)
+
+
+# Action Manager
+class ActionManagerWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+
+        header = QLabel("Action Manager")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.actions_table = QTableWidget(0, 3)
+        self.actions_table.setHorizontalHeaderLabels(["Action ID", "Description", "Status"])
+        self.actions_table.setStyleSheet("background-color: #3E3E3E; color: #FFFFFF;")
+        self.layout.addWidget(self.actions_table)
+
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add Action")
+        self.add_button.setStyleSheet("background-color: #4E9A51; color: #FFFFFF;")
+        self.add_button.clicked.connect(self.add_action)
+        button_layout.addWidget(self.add_button)
+
+        self.layout.addLayout(button_layout)
+
+    def add_action(self):
+        row_position = self.actions_table.rowCount()
+        self.actions_table.insertRow(row_position)
+        self.actions_table.setItem(row_position, 0, QTableWidgetItem(f"A{row_position + 1}"))
+        self.actions_table.setItem(row_position, 1, QTableWidgetItem("New Action"))
+        self.actions_table.setItem(row_position, 2, QTableWidgetItem("Pending"))
+
+    def load_data(self, actions_data):
+        self.actions_table.setRowCount(0)
+        for action in actions_data:
+            row_position = self.actions_table.rowCount()
+            self.actions_table.insertRow(row_position)
+            self.actions_table.setItem(row_position, 0, QTableWidgetItem(action["Action ID"]))
+            self.actions_table.setItem(row_position, 1, QTableWidgetItem(action["Description"]))
+            self.actions_table.setItem(row_position, 2, QTableWidgetItem(action["Status"]))
+
+    def get_data(self):
+        data = []
+        for row in range(self.actions_table.rowCount()):
+            action = {
+                "Action ID": self.actions_table.item(row, 0).text(),
+                "Description": self.actions_table.item(row, 1).text(),
+                "Status": self.actions_table.item(row, 2).text(),
+            }
+            data.append(action)
+        return data
+
+
+# Test Verification
+class TestVerificationWidget(QWidget):
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        self.layout = QVBoxLayout(self)
+
+        header = QLabel("Test Verification")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.layout.addWidget(header)
+
+        self.test_table = QTableWidget(0, 3)
+        self.test_table.setHorizontalHeaderLabels(["Test ID", "Requirement ID", "Status"])
+        self.test_table.setStyleSheet("background-color: #3E3E3E; color: #FFFFFF;")
+        self.layout.addWidget(self.test_table)
+
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add Test")
+        self.add_button.setStyleSheet("background-color: #4E9A51; color: #FFFFFF;")
+        self.add_button.clicked.connect(self.add_test)
+        button_layout.addWidget(self.add_button)
+
+        self.layout.addLayout(button_layout)
+
+    def add_test(self):
+        row_position = self.test_table.rowCount()
+        self.test_table.insertRow(row_position)
+        self.test_table.setItem(row_position, 0, QTableWidgetItem(f"T{row_position + 1}"))
+        self.test_table.setItem(row_position, 1, QTableWidgetItem("Linked Requirement"))
+        self.test_table.setItem(row_position, 2, QTableWidgetItem("Pending"))
+
+    def load_data(self, tests_data):
+        self.test_table.setRowCount(0)
+        for test in tests_data:
+            row_position = self.test_table.rowCount()
+            self.test_table.insertRow(row_position)
+            self.test_table.setItem(row_position, 0, QTableWidgetItem(test["Test ID"]))
+            self.test_table.setItem(row_position, 1, QTableWidgetItem(test["Requirement ID"]))
+            self.test_table.setItem(row_position, 2, QTableWidgetItem(test["Status"]))
+
+    def get_data(self):
+        data = []
+        for row in range(self.test_table.rowCount()):
+            test = {
+                "Test ID": self.test_table.item(row, 0).text(),
+                "Requirement ID": self.test_table.item(row, 1).text(),
+                "Status": self.test_table.item(row, 2).text(),
+            }
+            data.append(test)
+        return data
+
+
+def launch_sysengine():
+    app = QApplication(sys.argv)
+    window = SysEngine()
+    window.show()
+    app.exec_()
+
+
+if __name__ == "__main__":
+    launch_sysengine()
