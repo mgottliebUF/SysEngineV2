@@ -176,5 +176,6 @@ Development Notes:
 UI Framework: Uses PyQt5 for cross-platform desktop GUI.
 Code Structure: The code organizes different functional sections as separate classes/widgets. The main window (MBSETool class) manages tabs, toolbars, and data loading/saving.
 Extensibility: Designed to be expandable. Additional functionality (e.g., DODAF views, custom integrations) can be added by creating new widgets and extending the main application.
+![image](https://github.com/user-attachments/assets/95ada4fb-5e99-43a0-82ad-0344d8c17e2f)
 
 
